@@ -2,6 +2,8 @@ name: Deploy Nginx Config and Application
 
 on:
   push:
+    paths:
+      - 'nginx/**'  # Só será disparado quando arquivos na pasta nginx forem alterados
     branches:
       - main
 
