@@ -1,0 +1,49 @@
+name: Deploy Grafana with Docker Compose
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy-grafana:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v2
+
+      - name: Set up SSH for remote deployment
+        uses: webfactory/ssh-agent@v0.5.3
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      # Step 1: Ensure Docker and Docker Compose are installed
+      - name: Install Docker and Docker Compose
+        run: |
+          sudo yum update -y
+          sudo yum install -y docker
+          sudo systemctl start docker
+          sudo systemctl enable docker
+          sudo curl -L "https://github.com/docker/compose/releases/download/$(curl -s https://api.github.com/repos/docker/compose/releases/latest | jq -r .tag_name)/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+          sudo chmod +x /usr/local/bin/docker-compose
+
+      # Step 2: Pull and deploy Grafana using Docker Compose
+      - name: Deploy Grafana via Docker Compose
+        run: |
+          ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.SERVER_ADDRESS }} "cd /home/ec2-user/grafana && docker-compose pull && docker-compose up -d"
+
+      # Step 3: Test if Grafana is running
+      - name: Test Grafana service
+        run: |
+          ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.SERVER_ADDRESS }} "curl -f http://localhost:3000 || exit 1"
+
+      # Step 4: Post-deployment tasks (Optional)
+      - name: Run Grafana post-deployment tasks
+        run: |
+          ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.SERVER_ADDRESS }} "docker exec grafana /bin/bash -c 'grafana-cli plugins list'"
+
+      # Step 5: Clean up Docker images (Optional)
+      - name: Clean up old Docker images
+        run: |
+          ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.SERVER_ADDRESS }} "docker system prune -af"
