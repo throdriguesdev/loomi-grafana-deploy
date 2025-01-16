@@ -3,14 +3,13 @@ name: Deploy Grafana with Docker Compose
 on:
   push:
     paths:
-      - 'grafana/**'  # Só será disparado quando arquivos na pasta grafana forem alterados
+      - 'grafana/**'
     branches:
       - main
 
 jobs:
   deploy-grafana:
     runs-on: ubuntu-latest
-
     steps:
       - name: Check out the repository
         uses: actions/checkout@v2
@@ -20,22 +19,72 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
-      # Step 1: Pull and deploy Grafana using Docker Compose
+      # Verificação de pré-requisitos
+      - name: Check Docker and Docker Compose installation
+        run: |
+          ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.SERVER_ADDRESS }} "
+            docker --version || exit 1
+            docker compose version || exit 1
+          "
+
+      # Backup dos volumes 
+      - name: Backup Grafana volumes
+        run: |
+          ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.SERVER_ADDRESS }} "
+            if [ -d /home/ec2-user/grafana/data ]; then
+              sudo tar -czf /home/ec2-user/grafana/backup_$(date +%Y%m%d_%H%M%S).tar.gz -C /home/ec2-user/grafana data/
+            fi
+          "
+
+      # Deploy principal
       - name: Deploy Grafana via Docker Compose
         run: |
-          ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.SERVER_ADDRESS }} "cd /home/ec2-user/grafana && docker-compose pull && docker-compose up -d"
+          ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.SERVER_ADDRESS }} "
+            cd /home/ec2-user/grafana && \
+            docker compose pull && \
+            docker compose up -d --force-recreate --remove-orphans
+          "
 
-      # Step 2: Test if Grafana is running
-      - name: Test Grafana service
+      # Verificação de saúde
+      - name: Health check
         run: |
-          ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.SERVER_ADDRESS }} "curl -f http://localhost:3000 || exit 1"
+          ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.SERVER_ADDRESS }} "
+            echo 'Waiting for Grafana to start...' && \
+            for i in {1..30}; do
+              if curl -sf http://localhost:3000/api/health; then
+                echo 'Grafana is healthy!'
+                exit 0
+              fi
+              echo 'Waiting...'
+              sleep 2
+            done
+            echo 'Grafana failed to start properly'
+            docker compose logs --tail=100
+            exit 1
+          "
 
-      # Step 3: Post-deployment tasks (Optional)
-      # - name: Run Grafana post-deployment tasks
-      #   run: |
-      #     ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.SERVER_ADDRESS }} "docker exec grafana /bin/bash -c 'grafana-cli plugins list'"
+      # Verificação dos logs
+      - name: Check container logs
+        run: |
+          ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.SERVER_ADDRESS }} "
+            echo 'Checking container logs for errors...'
+            docker compose logs --tail=50 | grep -i error || true
+          "
 
-      # Step 4: Clean up Docker images (Optional)
+      # Limpeza com verificação
       - name: Clean up old Docker images
+        if: success()
         run: |
-          ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.SERVER_ADDRESS }} "docker system prune -af"
+          ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.SERVER_ADDRESS }} "
+            echo 'Cleaning up old images...'
+            docker system prune -af --volumes
+            echo 'Verifying disk space...'
+            df -h /
+          "
+
+      # Notificação de status
+      - name: Deployment Status
+        if: always()
+        run: |
+          echo "Deployment status: ${{ job.status }}"
+          echo "Deployment time: $(date)"
