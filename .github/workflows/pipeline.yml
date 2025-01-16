@@ -1,39 +1,50 @@
+# File: .github/workflows/deploy.yml
 name: Deploy Nginx Config
 
 on:
   push:
     branches:
-      - main  
+      - main
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-
     steps:
-    - name: Check out the repository
-      uses: actions/checkout@v2
+      - name: Check out the repository
+        uses: actions/checkout@v2
 
-    - name: Set up SSH for remote deployment
-      uses: webfactory/ssh-agent@v0.5.3
-      with:
-        ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }} 
+      - name: Set up SSH for remote deployment
+        uses: webfactory/ssh-agent@v0.5.3
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
-    - name: Copy Nginx configuration to server
-      run: |
-        # Copia o arquivo de configuração para o diretório temporário
-        scp -o StrictHostKeyChecking=no ./grafana.conf ec2-user@${{ secrets.SERVER_ADDRESS }}:/tmp/
+      - name: Create templated config
+        run: |
+          # Criar diretório temporário
+          mkdir -p tmp
+          
+          # Substituir variáveis no arquivo de configuração
+          envsubst < nginx/grafana.conf.template > tmp/grafana.conf
+        env:
+          DOMAIN_NAME: ${{ secrets.DOMAIN_NAME }}
+          SSL_CERTIFICATE_PATH: "/etc/letsencrypt/live/${{ secrets.DOMAIN_NAME }}/fullchain.pem"
+          SSL_CERTIFICATE_KEY_PATH: "/etc/letsencrypt/live/${{ secrets.DOMAIN_NAME }}/privkey.pem"
+          HSTS_MAX_AGE: "31536000"
+          SSL_PROTOCOLS: "TLSv1.2 TLSv1.3"
+          SSL_CIPHERS: "ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES128-GCM-SHA256"
 
-    - name: Move Nginx config to the correct location with sudo
-      run: |
-        # Move o arquivo para o diretório correto /etc/nginx/conf.d/ usando sudo
-        ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.SERVER_ADDRESS }} "sudo mv /tmp/grafana.conf /etc/nginx/conf.d/ && sudo chown root:root /etc/nginx/conf.d/grafana.conf"
+      - name: Copy Nginx configuration to server
+        run: |
+          scp -o StrictHostKeyChecking=no tmp/grafana.conf ec2-user@${{ secrets.SERVER_ADDRESS }}:/tmp/
 
-    - name: Test Nginx configuration
-      run: |
-        # Testa se a configuração do Nginx está correta no servidor remoto
-        ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.SERVER_ADDRESS }} "sudo nginx -t"
+      - name: Move Nginx config and set permissions
+        run: |
+          ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.SERVER_ADDRESS }} "sudo mv /tmp/grafana.conf /etc/nginx/conf.d/ && sudo chown root:root /etc/nginx/conf.d/grafana.conf"
 
-    - name: Restart Nginx
-      run: |
-        # Reinicia o Nginx no servidor remoto
-        ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.SERVER_ADDRESS }} "sudo systemctl restart nginx"
+      - name: Test Nginx configuration
+        run: |
+          ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.SERVER_ADDRESS }} "sudo nginx -t"
+
+      - name: Restart Nginx
+        run: |
+          ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.SERVER_ADDRESS }} "sudo systemctl restart nginx"
