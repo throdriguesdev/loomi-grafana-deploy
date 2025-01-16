@@ -1,15 +1,14 @@
-# File: .github/workflows/grafana-deploy.yml
-name: Deploy Grafana Application
+name: Deploy Grafana with Docker Compose
 
 on:
   push:
     branches:
       - main
 
-
 jobs:
-  deploy:
+  deploy-grafana:
     runs-on: ubuntu-latest
+
     steps:
       - name: Check out the repository
         uses: actions/checkout@v2
@@ -19,28 +18,22 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
-      - name: Copy docker-compose file
+      # Step 1: Pull and deploy Grafana using Docker Compose
+      - name: Deploy Grafana via Docker Compose
         run: |
-          scp -o StrictHostKeyChecking=no grafana/docker-compose.yaml ec2-user@${{ secrets.SERVER_ADDRESS }}:/home/ec2-user/grafana/
+          ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.SERVER_ADDRESS }} "cd /home/ec2-user/grafana && docker-compose pull && docker-compose up -d"
 
-      - name: Deploy Grafana with Docker Compose
+      # Step 2: Test if Grafana is running
+      - name: Test Grafana service
         run: |
-          ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.SERVER_ADDRESS }} "
-            cd /home/ec2-user/grafana && \
-            docker compose pull && \
-            docker compose up -d --force-recreate
-          "
+          ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.SERVER_ADDRESS }} "curl -f http://localhost:3000 || exit 1"
 
-      - name: Wait for Grafana to start
+      # Step 3: Post-deployment tasks (Optional)
+      - name: Run Grafana post-deployment tasks
         run: |
-          ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.SERVER_ADDRESS }} "
-            echo 'Waiting for Grafana to start...' && \
-            sleep 30 && \
-            curl -f http://localhost:3000 || exit 1
-          "
+          ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.SERVER_ADDRESS }} "docker exec grafana /bin/bash -c 'grafana-cli plugins list'"
 
+      # Step 4: Clean up Docker images (Optional)
       - name: Clean up old Docker images
-        if: success()
         run: |
-          ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.SERVER_ADDRESS }} "
-            docker system prune -f --all --volumes"
+          ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.SERVER_ADDRESS }} "docker system prune -af"
