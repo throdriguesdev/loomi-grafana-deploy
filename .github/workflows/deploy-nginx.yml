@@ -3,7 +3,7 @@ name: Deploy Nginx Config and Application
 on:
   push:
     paths:
-      - 'nginx/**'  # Só será disparado quando arquivos na pasta nginx forem alterados
+      - 'nginx/**'  
     branches:
       - main
 
@@ -29,7 +29,8 @@ jobs:
       - name: Create templated config
         run: |
           mkdir -p tmp
-          envsubst '${DOMAIN_NAME} ${SSL_CERTIFICATE_PATH} ${SSL_CERTIFICATE_KEY_PATH} ${HSTS_MAX_AGE} ${SSL_PROTOCOLS} ${SSL_CIPHERS}' < grafana.conf > tmp/grafana.conf
+          # Alterado para caminho correto
+          envsubst '${DOMAIN_NAME} ${SSL_CERTIFICATE_PATH} ${SSL_CERTIFICATE_KEY_PATH} ${HSTS_MAX_AGE} ${SSL_PROTOCOLS} ${SSL_CIPHERS}' < nginx/grafana.conf > tmp/grafana.conf
           echo "Generated config file content:"
           cat tmp/grafana.conf
         env:
@@ -45,7 +46,7 @@ jobs:
         run: |
           scp -o StrictHostKeyChecking=no tmp/grafana.conf ec2-user@${{ secrets.SERVER_ADDRESS }}:/tmp/
 
-      # Step 4: Move and set correct permissions for the config
+      # Step 4: Move Nginx config and set permissions
       - name: Move Nginx config and set permissions
         run: |
           ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.SERVER_ADDRESS }} "sudo mv /tmp/grafana.conf /etc/nginx/conf.d/ && sudo chown root:root /etc/nginx/conf.d/grafana.conf"
@@ -61,13 +62,7 @@ jobs:
         run: |
           ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.SERVER_ADDRESS }} "sudo systemctl restart nginx"
 
-      # Step 7: Update system packages
-      - name: Update system packages
-        run: |
-          ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.SERVER_ADDRESS }} "sudo yum update -y"
-      # Step 9: Run post-deployment tests
+      # Step 7: Run post-deployment tests
       - name: Run post-deployment tests
         run: |
           ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.SERVER_ADDRESS }} "curl -f http://localhost:80 || exit 1"
-
-      
