@@ -63,24 +63,9 @@ jobs:
       - name: Update system packages
         run: |
           ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.SERVER_ADDRESS }} "sudo yum update -y"
-
-      # Step 8: Deploy Docker containers (if applicable)
-      - name: Deploy Docker containers (example)
-        run: |
-          ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.SERVER_ADDRESS }} "cd /path/to/docker-compose && sudo docker-compose pull && sudo docker-compose up -d"
-
       # Step 9: Run post-deployment tests
       - name: Run post-deployment tests
         run: |
           ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.SERVER_ADDRESS }} "curl -f http://localhost:80 || exit 1"
 
-      # Step 10: Send notification on success/failure (optional)
-      - name: Send success notification
-        if: success()
-        run: |
-          curl -X POST -H 'Content-type: application/json' --data '{"text":"Deployment successful!"}' ${{ secrets.SLACK_WEBHOOK_URL }}
       
-      - name: Send failure notification
-        if: failure()
-        run: |
-          curl -X POST -H 'Content-type: application/json' --data '{"text":"Deployment failed. Please check the logs."}' ${{ secrets.SLACK_WEBHOOK_URL }}
