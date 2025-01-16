@@ -1,5 +1,4 @@
-# File: .github/workflows/deploy.yml
-name: Deploy Nginx Config
+name: Deploy Nginx Config and Application
 
 on:
   push:
@@ -9,6 +8,7 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+
     steps:
       - name: Check out the repository
         uses: actions/checkout@v2
@@ -18,15 +18,16 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
+      # Step 1: Backup Nginx Configuration
+      - name: Backup current Nginx configuration
+        run: |
+          ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.SERVER_ADDRESS }} "sudo cp /etc/nginx/conf.d/grafana.conf /etc/nginx/conf.d/grafana.conf.bak"
+
+      # Step 2: Create templated config with environment variables
       - name: Create templated config
         run: |
-          # Criar diretório temporário
           mkdir -p tmp
-          
-          # Substituir apenas as variáveis específicas que queremos substituir
           envsubst '${DOMAIN_NAME} ${SSL_CERTIFICATE_PATH} ${SSL_CERTIFICATE_KEY_PATH} ${HSTS_MAX_AGE} ${SSL_PROTOCOLS} ${SSL_CIPHERS}' < grafana.conf > tmp/grafana.conf
-          
-          # Debug: mostrar o conteúdo do arquivo gerado
           echo "Generated config file content:"
           cat tmp/grafana.conf
         env:
@@ -37,19 +38,49 @@ jobs:
           SSL_PROTOCOLS: "TLSv1.2 TLSv1.3"
           SSL_CIPHERS: "ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES128-GCM-SHA256"
 
+      # Step 3: Copy Nginx configuration to server
       - name: Copy Nginx configuration to server
         run: |
           scp -o StrictHostKeyChecking=no tmp/grafana.conf ec2-user@${{ secrets.SERVER_ADDRESS }}:/tmp/
 
+      # Step 4: Move and set correct permissions for the config
       - name: Move Nginx config and set permissions
         run: |
           ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.SERVER_ADDRESS }} "sudo mv /tmp/grafana.conf /etc/nginx/conf.d/ && sudo chown root:root /etc/nginx/conf.d/grafana.conf"
 
+      # Step 5: Test Nginx configuration
       - name: Test Nginx configuration
         run: |
           ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.SERVER_ADDRESS }} "sudo nginx -t"
 
+      # Step 6: Restart Nginx
       - name: Restart Nginx
         if: success()
         run: |
           ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.SERVER_ADDRESS }} "sudo systemctl restart nginx"
+
+      # Step 7: Update system packages
+      - name: Update system packages
+        run: |
+          ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.SERVER_ADDRESS }} "sudo yum update -y"
+
+      # Step 8: Deploy Docker containers (if applicable)
+      - name: Deploy Docker containers (example)
+        run: |
+          ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.SERVER_ADDRESS }} "cd /path/to/docker-compose && sudo docker-compose pull && sudo docker-compose up -d"
+
+      # Step 9: Run post-deployment tests
+      - name: Run post-deployment tests
+        run: |
+          ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.SERVER_ADDRESS }} "curl -f http://localhost:80 || exit 1"
+
+      # Step 10: Send notification on success/failure (optional)
+      - name: Send success notification
+        if: success()
+        run: |
+          curl -X POST -H 'Content-type: application/json' --data '{"text":"Deployment successful!"}' ${{ secrets.SLACK_WEBHOOK_URL }}
+      
+      - name: Send failure notification
+        if: failure()
+        run: |
+          curl -X POST -H 'Content-type: application/json' --data '{"text":"Deployment failed. Please check the logs."}' ${{ secrets.SLACK_WEBHOOK_URL }}
