@@ -2,6 +2,8 @@ name: Deploy Grafana with Docker Compose
 
 on:
   push:
+    paths:
+      - 'grafana/**'  # Só será disparado quando arquivos na pasta grafana forem alterados
     branches:
       - main
 
