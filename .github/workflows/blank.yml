@@ -1,0 +1,34 @@
+name: Deploy Nginx Config
+
+on:
+  push:
+    branches:
+      - main  
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Check out the repository
+      uses: actions/checkout@v2
+
+    - name: Set up SSH for remote deployment
+      uses: webfactory/ssh-agent@v0.5.3
+      with:
+        ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }} 
+
+    - name: Copy Nginx configuration to server
+      run: |
+        # Copia a configuração do Nginx para o servidor remoto usando o SCP
+        scp -o StrictHostKeyChecking=no -r ./nginx-config/* ec2-user@${{ secrets.SERVER_ADDRESS }}:/etc/nginx/conf.d/
+
+    - name: Test Nginx configuration
+      run: |
+        # Testa se a configuração do Nginx está correta no servidor remoto
+        ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.SERVER_ADDRESS }} "sudo nginx -t"
+
+    - name: Restart Nginx
+      run: |
+        # Reinicia o Nginx no servidor remoto
+        ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.SERVER_ADDRESS }} "sudo systemctl restart nginx"
