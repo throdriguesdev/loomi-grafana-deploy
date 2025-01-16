@@ -29,9 +29,9 @@ jobs:
           ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.SERVER_ADDRESS }} "curl -f http://localhost:3000 || exit 1"
 
       # Step 3: Post-deployment tasks (Optional)
-      - name: Run Grafana post-deployment tasks
-        run: |
-          ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.SERVER_ADDRESS }} "docker exec grafana /bin/bash -c 'grafana-cli plugins list'"
+      # - name: Run Grafana post-deployment tasks
+      #   run: |
+      #     ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.SERVER_ADDRESS }} "docker exec grafana /bin/bash -c 'grafana-cli plugins list'"
 
       # Step 4: Clean up Docker images (Optional)
       - name: Clean up old Docker images
