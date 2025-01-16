@@ -30,7 +30,7 @@ jobs:
         run: |
           mkdir -p tmp
           # Alterado para caminho correto
-          envsubst '${DOMAIN_NAME} ${SSL_CERTIFICATE_PATH} ${SSL_CERTIFICATE_KEY_PATH} ${HSTS_MAX_AGE} ${SSL_PROTOCOLS} ${SSL_CIPHERS}' < nginx/grafana.conf > tmp/grafana.conf
+          envsubst '${DOMAIN_NAME} ${SSL_CERTIFICATE_PATH} ${SSL_CERTIFICATE_KEY_PATH} ${HSTS_MAX_AGE} ${SSL_PROTOCOLS} ${SSL_CIPHERS}' < ./nginx/grafana.conf > tmp/grafana.conf
           echo "Generated config file content:"
           cat tmp/grafana.conf
         env:
