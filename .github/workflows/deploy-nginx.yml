@@ -1,3 +1,4 @@
+# File: .github/workflows/nginx-deploy.yml
 name: Deploy Nginx Config and Application
 
 on:
@@ -10,7 +11,6 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-
     steps:
       - name: Check out the repository
         uses: actions/checkout@v2
@@ -20,17 +20,45 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
-      # Step 1: Backup Nginx Configuration
+      # Verificação inicial
+      - name: Check Nginx installation and status
+        run: |
+          ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.SERVER_ADDRESS }} "
+            sudo nginx -v
+            sudo systemctl status nginx
+          "
+
+      # Backup com timestamp
       - name: Backup current Nginx configuration
         run: |
-          ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.SERVER_ADDRESS }} "sudo cp /etc/nginx/conf.d/grafana.conf /etc/nginx/conf.d/grafana.conf.bak"
+          ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.SERVER_ADDRESS }} "
+            sudo cp /etc/nginx/conf.d/grafana.conf /etc/nginx/conf.d/grafana.conf.bak.$(date +%Y%m%d_%H%M%S) || true
+          "
 
-      # Step 2: Create templated config with environment variables
+      # Validação do template
+      - name: Validate template variables
+        run: |
+          for var in DOMAIN_NAME SSL_CERTIFICATE_PATH SSL_CERTIFICATE_KEY_PATH HSTS_MAX_AGE SSL_PROTOCOLS SSL_CIPHERS; do
+            if [ -z "${!var}" ]; then
+              echo "Error: $var is not set"
+              exit 1
+            fi
+          done
+        env:
+          DOMAIN_NAME: ${{ secrets.DOMAIN_NAME }}
+          SSL_CERTIFICATE_PATH: "/etc/letsencrypt/live/${{ secrets.DOMAIN_NAME }}/fullchain.pem"
+          SSL_CERTIFICATE_KEY_PATH: "/etc/letsencrypt/live/${{ secrets.DOMAIN_NAME }}/privkey.pem"
+          HSTS_MAX_AGE: "31536000"
+          SSL_PROTOCOLS: "TLSv1.2 TLSv1.3"
+          SSL_CIPHERS: "ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES128-GCM-SHA256"
+
+      # Configuração com debug
       - name: Create templated config
         run: |
           mkdir -p tmp
+          echo "Generating Nginx configuration..."
           envsubst '${DOMAIN_NAME} ${SSL_CERTIFICATE_PATH} ${SSL_CERTIFICATE_KEY_PATH} ${HSTS_MAX_AGE} ${SSL_PROTOCOLS} ${SSL_CIPHERS}' < nginx/grafana.conf > tmp/grafana.conf
-          echo "Generated config file content:"
+          echo "Configuration generated successfully. Content:"
           cat tmp/grafana.conf
         env:
           DOMAIN_NAME: ${{ secrets.DOMAIN_NAME }}
@@ -40,28 +68,54 @@ jobs:
           SSL_PROTOCOLS: "TLSv1.2 TLSv1.3"
           SSL_CIPHERS: "ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES128-GCM-SHA256"
 
-      # Step 3: Copy Nginx configuration to server
-      - name: Copy Nginx configuration to server
+      # Verificação de certificados SSL
+      - name: Verify SSL certificates
+        run: |
+          ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.SERVER_ADDRESS }} "
+            sudo test -f /etc/letsencrypt/live/${{ secrets.DOMAIN_NAME }}/fullchain.pem || exit 1
+            sudo test -f /etc/letsencrypt/live/${{ secrets.DOMAIN_NAME }}/privkey.pem || exit 1
+          "
+
+      # Deploy com verificação de permissões
+      - name: Copy and deploy Nginx configuration
         run: |
           scp -o StrictHostKeyChecking=no tmp/grafana.conf ec2-user@${{ secrets.SERVER_ADDRESS }}:/tmp/
+          ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.SERVER_ADDRESS }} "
+            sudo mv /tmp/grafana.conf /etc/nginx/conf.d/ && 
+            sudo chown root:root /etc/nginx/conf.d/grafana.conf &&
+            sudo chmod 644 /etc/nginx/conf.d/grafana.conf
+          "
 
-      # Step 4: Move Nginx config and set permissions
-      - name: Move Nginx config and set permissions
-        run: |
-          ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.SERVER_ADDRESS }} "sudo mv /tmp/grafana.conf /etc/nginx/conf.d/ && sudo chown root:root /etc/nginx/conf.d/grafana.conf"
-
-      # Step 5: Test Nginx configuration
       - name: Test Nginx configuration
         run: |
-          ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.SERVER_ADDRESS }} "sudo nginx -t"
+          ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.SERVER_ADDRESS }} "
+            echo 'Testing Nginx configuration...'
+            sudo nginx -t 2>&1
+          "
 
-      # Step 6: Restart Nginx
-      - name: Restart Nginx
+
+      - name: Restart and verify Nginx
         if: success()
         run: |
-          ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.SERVER_ADDRESS }} "sudo systemctl restart nginx"
+          ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.SERVER_ADDRESS }} "
+            sudo systemctl restart nginx
+            sudo systemctl status nginx
+          "
 
-      # Step 7: Run post-deployment tests
       - name: Run post-deployment tests
         run: |
-          ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.SERVER_ADDRESS }} "curl -f http://localhost:80 || exit 1"
+          ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.SERVER_ADDRESS }} "
+            echo 'Testing HTTP redirect...'
+            curl -I http://${{ secrets.DOMAIN_NAME }}
+            echo 'Testing HTTPS connection...'
+            curl -I https://${{ secrets.DOMAIN_NAME }}
+            echo 'Testing Grafana proxy...'
+            curl -I http://localhost:3000
+          "
+
+      - name: Deployment Status
+        if: always()
+        run: |
+          echo "Deployment status: ${{ job.status }}"
+          echo "Deployment time: $(date)"
+          echo "Domain: ${{ secrets.DOMAIN_NAME }}"
