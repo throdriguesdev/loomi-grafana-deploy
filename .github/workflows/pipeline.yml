@@ -24,7 +24,11 @@ jobs:
           mkdir -p tmp
           
           # Substituir variáveis no arquivo de configuração
-          envsubst < nginx/grafana.conf.template > tmp/grafana.conf
+          envsubst < grafana.conf > tmp/grafana.conf
+          
+          # Debug: mostrar o conteúdo do arquivo gerado
+          echo "Generated config file content:"
+          cat tmp/grafana.conf
         env:
           DOMAIN_NAME: ${{ secrets.DOMAIN_NAME }}
           SSL_CERTIFICATE_PATH: "/etc/letsencrypt/live/${{ secrets.DOMAIN_NAME }}/fullchain.pem"
@@ -46,5 +50,6 @@ jobs:
           ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.SERVER_ADDRESS }} "sudo nginx -t"
 
       - name: Restart Nginx
+        if: success()
         run: |
           ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.SERVER_ADDRESS }} "sudo systemctl restart nginx"
