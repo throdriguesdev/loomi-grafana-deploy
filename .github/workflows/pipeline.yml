@@ -20,8 +20,13 @@ jobs:
 
     - name: Copy Nginx configuration to server
       run: |
-        # Copia a configuração do Nginx para o servidor remoto usando o SCP
-        scp -o StrictHostKeyChecking=no -r ./grafana.conf ec2-user@${{ secrets.SERVER_ADDRESS }}:/etc/nginx/conf.d/
+        # Copia o arquivo de configuração para o diretório temporário
+        scp -o StrictHostKeyChecking=no ./grafana.conf ec2-user@${{ secrets.SERVER_ADDRESS }}:/tmp/
+
+    - name: Move Nginx config to the correct location with sudo
+      run: |
+        # Move o arquivo para o diretório correto /etc/nginx/conf.d/ usando sudo
+        ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.SERVER_ADDRESS }} "sudo mv /tmp/grafana.conf /etc/nginx/conf.d/ && sudo chown root:root /etc/nginx/conf.d/grafana.conf"
 
     - name: Test Nginx configuration
       run: |
